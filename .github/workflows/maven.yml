@@ -33,7 +33,7 @@ jobs:
         
     - name: Test SSE Endpoint
       run: |
-        response=$(curl -N -H "Accept:text/event-stream" "http://localhost:8080/api/chat/stream?query=hello")
+        response=$(curl -N -H "Accept:text/event-stream" "http://localhost:8080/api/chat/stream?query=hello&clientToken=test-client-123")
         echo "Response: $response"
         if [[ "$response" == *"[DONE]"* ]]; then
           echo "✅ SSE Test Passed"
