@@ -10,11 +10,11 @@ mvn spring-boot:run
 
 ## Test with cURL
 ```
-# Basic request
-curl -N -H "Accept:text/event-stream" "http://localhost:8080/api/chat/stream?query=hello"
+# Basic request with clientToken
+curl -N -H "Accept:text/event-stream" "http://localhost:8080/api/chat/stream?query=hello&clientToken=test-client-123"
 
-# Test reconnection with Last-Event-ID
-curl -N -H "Accept:text/event-stream" -H "Last-Event-ID: 2" "http://localhost:8080/api/chat/stream?query=hello"
+# Reconnection with Last-Event-ID and same clientToken
+curl -N -H "Accept:text/event-stream" -H "Last-Event-ID: 2" "http://localhost:8080/api/chat/stream?query=hello&clientToken=test-client-123"
 ```
 
 ## Expected Output

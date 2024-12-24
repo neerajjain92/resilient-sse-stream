@@ -1,13 +1,13 @@
 package com.stream.sse.resilient_sse_stream;
 
 import jakarta.servlet.http.HttpSession;
-import lombok.AllArgsConstructor;
 import lombok.Data;
-import lombok.NoArgsConstructor;
+import lombok.Getter;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.*;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
+import java.io.IOException;
 import java.util.Map;
 import java.util.Queue;
 import java.util.concurrent.CompletableFuture;
@@ -23,6 +23,7 @@ public class ChatController {
     private final AtomicInteger eventIdGenerator = new AtomicInteger(0);
 
     @Data
+    @Getter
     private static class Message {
         private int eventId;
         private String content;
@@ -37,23 +38,54 @@ public class ChatController {
 
     @GetMapping(value = "/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter subscribe(@RequestParam String query,
+                                @RequestParam String clientToken,
                                 @RequestHeader(value = "Last-Event-Id", required = false) String lastEventId,
                                 HttpSession session) {
-        String clientId = session.getId();
         SseEmitter emitter = new SseEmitter(-1L);
 
-        clientMessages.putIfAbsent(clientId, new ConcurrentLinkedQueue<>());
+        clientMessages.putIfAbsent(clientToken, new ConcurrentLinkedQueue<>());
 
-        // Process new query
-        executeLLMResponse(emitter, query, clientId);
+        if (lastEventId != null) {
+            // Client wants to resume
+            handleReconnection(emitter, clientToken, Integer.parseInt(lastEventId));
+        } else {
+            // Process new query
+            executeLLMResponse(emitter, query, clientToken);
+        }
 
         // Cleanup on completion
         emitter.onCompletion(() -> {
             // keep messages for some time for potential reconnection
-            scheduleCleanup(clientId);
+            scheduleCleanup(clientToken);
         });
 
         return emitter;
+    }
+
+    private void handleReconnection(SseEmitter emitter, String clientId, int lastReceivedEventId) {
+        Queue<Message> messages = clientMessages.get(clientId);
+        if (messages != null) {
+            CompletableFuture.runAsync(() -> {
+                try {
+                    messages.stream()
+                            // Filter all messages received when client was offline
+                            .filter(msg -> msg.getEventId() > lastReceivedEventId)
+                            .forEach(msg -> {
+                                try {
+                                    emitter.send(SseEmitter.event()
+                                            .id(String.valueOf(msg.getEventId()))
+                                            .data(msg.getContent())
+                                            .build());
+                                } catch (IOException ex) {
+                                    emitter.completeWithError(ex);
+                                }
+                            });
+                } catch (Exception ex) {
+                    emitter.completeWithError(ex);
+                }
+            });
+        }
+
     }
 
     private void executeLLMResponse(SseEmitter emitter, String query, String clientId) {
